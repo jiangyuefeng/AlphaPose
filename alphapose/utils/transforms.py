@@ -5,11 +5,12 @@
 
 """Pose related transforrmation functions."""
 
-import torch
-import cv2
-import scipy.misc
-import numpy as np
 import random
+
+import cv2
+import numpy as np
+import torch
+from torch.nn import functional as F
 
 
 def rnd(x):
@@ -73,17 +74,14 @@ def addDPG(bbox, imgwidth, imght):
 
 def im_to_torch(img):
     """Transform ndarray image to torch tensor.
-
     Parameters
     ----------
     img: numpy.ndarray
         An ndarray with shape: `(H, W, 3)`.
-
     Returns
     -------
     torch.Tensor
         A tensor with shape: `(3, H, W)`.
-
     """
     img = np.transpose(img, (2, 0, 1))  # C*H*W
     img = to_torch(img).float()
@@ -94,17 +92,14 @@ def im_to_torch(img):
 
 def torch_to_im(img):
     """Transform torch tensor to ndarray image.
-
     Parameters
     ----------
     img: torch.Tensor
         A tensor with shape: `(3, H, W)`.
-
     Returns
     -------
     numpy.ndarray
         An ndarray with shape: `(H, W, 3)`.
-
     """
     img = to_numpy(img)
     img = np.transpose(img, (1, 2, 0))  # C*H*W
@@ -113,7 +108,7 @@ def torch_to_im(img):
 
 def load_image(img_path):
     # H x W x C => C x H x W
-    return im_to_torch(scipy.misc.imread(img_path, mode='RGB'))
+    return im_to_torch(cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB))#scipy.misc.imread(img_path, mode='RGB'))
 
 
 def to_numpy(tensor):
@@ -138,7 +133,6 @@ def to_torch(ndarray):
 
 def cv_cropBox(img, bbox, input_size):
     """Crop bbox from image by Affinetransform.
-
     Parameters
     ----------
     img: torch.Tensor
@@ -147,12 +141,10 @@ def cv_cropBox(img, bbox, input_size):
         [xmin, ymin, xmax, ymax].
     input_size: tuple
         Resulting image size, as (height, width).
-
     Returns
     -------
     torch.Tensor
         A tensor with shape: `(3, height, width)`.
-
     """
     xmin, ymin, xmax, ymax = bbox
     xmax -= 1
@@ -192,7 +184,6 @@ def cv_cropBox(img, bbox, input_size):
 
 def cv_cropBox_rot(img, bbox, input_size, rot):
     """Crop bbox from image by Affinetransform.
-
     Parameters
     ----------
     img: torch.Tensor
@@ -201,12 +192,10 @@ def cv_cropBox_rot(img, bbox, input_size, rot):
         [xmin, ymin, xmax, ymax].
     input_size: tuple
         Resulting image size, as (height, width).
-
     Returns
     -------
     torch.Tensor
         A tensor with shape: `(3, height, width)`.
-
     """
     xmin, ymin, xmax, ymax = bbox
     xmax -= 1
@@ -246,7 +235,6 @@ def cv_cropBox_rot(img, bbox, input_size, rot):
 
 def fix_cropBox(img, bbox, input_size):
     """Crop bbox from image by Affinetransform.
-
     Parameters
     ----------
     img: torch.Tensor
@@ -255,12 +243,10 @@ def fix_cropBox(img, bbox, input_size):
         [xmin, ymin, xmax, ymax].
     input_size: tuple
         Resulting image size, as (height, width).
-
     Returns
     -------
     torch.Tensor
         A tensor with shape: `(3, height, width)`.
-
     """
     xmin, ymin, xmax, ymax = bbox
     input_ratio = input_size[0] / input_size[1]
@@ -286,7 +272,6 @@ def fix_cropBox(img, bbox, input_size):
 
 def fix_cropBox_rot(img, bbox, input_size, rot):
     """Crop bbox from image by Affinetransform.
-
     Parameters
     ----------
     img: torch.Tensor
@@ -295,12 +280,10 @@ def fix_cropBox_rot(img, bbox, input_size, rot):
         [xmin, ymin, xmax, ymax].
     input_size: tuple
         Resulting image size, as (height, width).
-
     Returns
     -------
     torch.Tensor
         A tensor with shape: `(3, height, width)`.
-
     """
     xmin, ymin, xmax, ymax = bbox
     input_ratio = input_size[0] / input_size[1]
@@ -343,7 +326,6 @@ def get_dir(src_point, rot_rad):
 
 def cv_cropBoxInverse(inp, bbox, img_size, output_size):
     """Paste the cropped bbox to the original image.
-
     Parameters
     ----------
     inp: torch.Tensor
@@ -358,7 +340,6 @@ def cv_cropBoxInverse(inp, bbox, img_size, output_size):
     -------
     torch.Tensor
         A tensor with shape: `(3, img_H, img_W)`.
-
     """
     xmin, ymin, xmax, ymax = bbox
     xmax -= 1
@@ -399,7 +380,6 @@ def cv_cropBoxInverse(inp, bbox, img_size, output_size):
 
 def cv_rotate(img, rot, input_size):
     """Rotate image by Affinetransform.
-
     Parameters
     ----------
     img: torch.Tensor
@@ -408,12 +388,10 @@ def cv_rotate(img, rot, input_size):
         Rotation degree.
     input_size: tuple
         Resulting image size, as (height, width).
-
     Returns
     -------
     torch.Tensor
         A tensor with shape: `(3, height, width)`.
-
     """
     resH, resW = input_size
     center = np.array((resW - 1, resH - 1)) / 2
@@ -460,7 +438,6 @@ def count_visible(bbox, joints_3d):
 
 def drawGaussian(img, pt, sigma):
     """Draw 2d gaussian on input image.
-
     Parameters
     ----------
     img: torch.Tensor
@@ -469,12 +446,10 @@ def drawGaussian(img, pt, sigma):
         A point: (x, y).
     sigma: int
         Sigma of gaussian distribution.
-
     Returns
     -------
     torch.Tensor
         A tensor with shape: `(3, H, W)`.
-
     """
     img = to_numpy(img)
     tmpSize = 3 * sigma
@@ -514,7 +489,6 @@ def flip(x):
 
 def flip_heatmap(heatmap, joint_pairs, shift=False):
     """Flip pose heatmap according to joint pairs.
-
     Parameters
     ----------
     heatmap : numpy.ndarray
@@ -523,12 +497,10 @@ def flip_heatmap(heatmap, joint_pairs, shift=False):
         List of joint pairs.
     shift : bool
         Whether to shift the output.
-
     Returns
     -------
     numpy.ndarray
         Flipped heatmap.
-
     """
     assert (heatmap.dim() == 3 or heatmap.dim() == 4)
     out = flip(heatmap)
@@ -552,7 +524,6 @@ def flip_heatmap(heatmap, joint_pairs, shift=False):
 
 def flip_joints_3d(joints_3d, width, joint_pairs):
     """Flip 3d joints.
-
     Parameters
     ----------
     joints_3d : numpy.ndarray
@@ -561,12 +532,10 @@ def flip_joints_3d(joints_3d, width, joint_pairs):
         Image width.
     joint_pairs : list
         List of joint pairs.
-
     Returns
     -------
     numpy.ndarray
         Flipped 3d joints with shape (num_joints, 3, 2)
-
     """
     joints = joints_3d.copy()
     # flip horizontally
@@ -582,7 +551,11 @@ def flip_joints_3d(joints_3d, width, joint_pairs):
     return joints
 
 
-def heatmap_to_coord_simple(hms, bbox):
+def heatmap_to_coord_simple(hms, bbox, hms_flip=None, **kwargs):
+    if hms_flip is not None:
+        hms = (hms + hms_flip) / 2
+    if not isinstance(hms,np.ndarray):
+        hms = hms.cpu().data.numpy()
     coords, maxvals = get_max_pred(hms)
 
     hm_h = hms.shape[1]
@@ -612,6 +585,125 @@ def heatmap_to_coord_simple(hms, bbox):
                                    [hm_w, hm_h])
 
     return preds, maxvals
+
+
+def heatmap_to_coord_simple_regress(preds, bbox, hm_shape, norm_type, hms_flip=None):
+    def integral_op(hm_1d):
+        if hm_1d.device.index is not None:
+            hm_1d = hm_1d * torch.cuda.comm.broadcast(torch.arange(hm_1d.shape[-1]).type(
+                torch.cuda.FloatTensor), devices=[hm_1d.device.index])[0]
+        else:
+            hm_1d = hm_1d * torch.arange(hm_1d.shape[-1]).type(torch.FloatTensor)
+        return hm_1d
+
+    if preds.dim() == 3:
+        preds = preds.unsqueeze(0)
+    hm_height, hm_width = hm_shape
+    num_joints = preds.shape[1]
+
+    pred_jts, pred_scores = _integral_tensor(preds, num_joints, False, hm_width, hm_height, 1, integral_op, norm_type)
+    pred_jts = pred_jts.reshape(pred_jts.shape[0], num_joints, 2)
+
+    if hms_flip is not None:
+        if hms_flip.dim() == 3:
+            hms_flip = hms_flip.unsqueeze(0)
+        pred_jts_flip, pred_scores_flip = _integral_tensor(hms_flip, num_joints, False, hm_width, hm_height, 1, integral_op, norm_type)
+        pred_jts_flip = pred_jts_flip.reshape(pred_jts_flip.shape[0], num_joints, 2)
+
+        pred_jts = (pred_jts + pred_jts_flip) / 2
+        pred_scores = (pred_scores + pred_scores_flip) / 2
+
+    ndims = pred_jts.dim()
+    assert ndims in [2, 3], "Dimensions of input heatmap should be 3 or 4"
+    if ndims == 2:
+        pred_jts = pred_jts.unsqueeze(0)
+        pred_scores = pred_scores.unsqueeze(0)
+
+    coords = pred_jts.cpu().numpy()
+    coords = coords.astype(np.float32)
+    pred_scores = pred_scores.cpu().numpy()
+    pred_scores = pred_scores.astype(np.float32)
+
+    coords[:, :, 0] = (coords[:, :, 0] + 0.5) * hm_width
+    coords[:, :, 1] = (coords[:, :, 1] + 0.5) * hm_height
+
+    preds = np.zeros_like(coords)
+    # transform bbox to scale
+    xmin, ymin, xmax, ymax = bbox
+    w = xmax - xmin
+    h = ymax - ymin
+    center = np.array([xmin + w * 0.5, ymin + h * 0.5])
+    scale = np.array([w, h])
+    # Transform back
+    for i in range(coords.shape[0]):
+        for j in range(coords.shape[1]):
+            preds[i, j, 0:2] = transform_preds(coords[i, j, 0:2], center, scale,
+                                               [hm_width, hm_height])
+
+    if preds.shape[0] == 1:
+        preds = preds[0]
+        pred_scores = pred_scores[0]
+    return preds, pred_scores
+
+
+def _integral_tensor(preds, num_joints, output_3d, hm_width, hm_height, hm_depth, integral_operation, norm_type='softmax'):
+    # normalization
+    preds = preds.reshape((preds.shape[0], num_joints, -1))
+    preds = norm_heatmap(norm_type, preds)
+
+    # get heatmap confidence
+    if norm_type == 'sigmoid':
+        maxvals, _ = torch.max(preds, dim=2, keepdim=True)
+    else:
+        maxvals = torch.ones(
+            (*preds.shape[:2], 1), dtype=torch.float, device=preds.device)
+
+    # normalized to probability
+    heatmaps = preds / preds.sum(dim=2, keepdim=True)
+    heatmaps = heatmaps.reshape(
+        (heatmaps.shape[0], num_joints, hm_depth, hm_height, hm_width))
+
+    # The edge probability
+    hm_x = heatmaps.sum((2, 3))
+    hm_y = heatmaps.sum((2, 4))
+    hm_z = heatmaps.sum((3, 4))
+
+    hm_x = integral_operation(hm_x)
+    hm_y = integral_operation(hm_y)
+    hm_z = integral_operation(hm_z)
+
+    coord_x = hm_x.sum(dim=2, keepdim=True)
+    coord_y = hm_y.sum(dim=2, keepdim=True)
+    coord_z = hm_z.sum(dim=2, keepdim=True)
+
+    coord_x = coord_x / float(hm_width) - 0.5
+    coord_y = coord_y / float(hm_height) - 0.5
+    if output_3d:
+        coord_z = coord_z / float(hm_depth) - 0.5
+        pred_jts = torch.cat((coord_x, coord_y, coord_z), dim=2)
+        pred_jts = pred_jts.reshape((pred_jts.shape[0], num_joints * 3))
+    else:
+        pred_jts = torch.cat((coord_x, coord_y), dim=2)
+        pred_jts = pred_jts.reshape((pred_jts.shape[0], num_joints * 2))
+    return pred_jts, maxvals.float()
+
+
+def norm_heatmap(norm_type, heatmap):
+    # Input tensor shape: [N,C,...]
+    shape = heatmap.shape
+    if norm_type == 'softmax':
+        heatmap = heatmap.reshape(*shape[:2], -1)
+        # global soft max
+        heatmap = F.softmax(heatmap, 2)
+        return heatmap.reshape(*shape)
+    elif norm_type == 'sigmoid':
+        return heatmap.sigmoid()
+    elif norm_type == 'divide_sum':
+        heatmap = heatmap.reshape(*shape[:2], -1)
+        heatmap = heatmap / heatmap.sum(dim=2, keepdim=True)
+        return heatmap.reshape(*shape)
+    else:
+        raise NotImplementedError
 
 
 def transform_preds(coords, center, scale, output_size):
@@ -710,6 +802,9 @@ def affine_transform(pt, t):
 
 def get_func_heatmap_to_coord(cfg):
     if cfg.DATA_PRESET.TYPE == 'simple':
-        return heatmap_to_coord_simple
+        if cfg.LOSS.TYPE == 'MSELoss':
+            return heatmap_to_coord_simple
+        elif cfg.LOSS.TYPE == 'L1JointRegression':
+            return heatmap_to_coord_simple_regress
     else:
         raise NotImplementedError

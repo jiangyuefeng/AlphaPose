@@ -1,6 +1,6 @@
 from torch import nn
 
-from alphapose.utils import Registry, build_from_cfg
+from alphapose.utils import Registry, build_from_cfg, retrieve_from_cfg
 
 
 SPPE = Registry('sppe')
@@ -32,9 +32,15 @@ def build_loss(cfg):
 
 
 def build_dataset(cfg, preset_cfg, **kwargs):
+    exec(f'from ..datasets import {cfg.TYPE}')
     default_args = {
         'PRESET': preset_cfg,
     }
     for key, value in kwargs.items():
         default_args[key] = value
     return build(cfg, DATASET, default_args=default_args)
+
+
+def retrieve_dataset(cfg):
+    exec(f'from ..datasets import {cfg.TYPE}')
+    return retrieve_from_cfg(cfg, DATASET)

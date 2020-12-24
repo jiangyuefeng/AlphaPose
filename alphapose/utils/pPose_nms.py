@@ -4,6 +4,7 @@ import os
 import zipfile
 import time
 from multiprocessing.dummy import Pool as ThreadPool
+from collections import defaultdict
 
 import torch
 import numpy as np
@@ -16,7 +17,206 @@ gamma = 22.48
 scoreThreds = 0.3
 matchThreds = 5
 alpha = 0.1
+vis_thr = 0.2
+oks_thr = 0.9
 #pool = ThreadPool(4)
+
+
+def oks_pose_nms(data, soft=False):
+    kpts = defaultdict(list)
+    post_data = []
+
+    for item in data:
+        img_id = item['image_id']
+        kpts[img_id].append(item)
+
+    for img_id, img_res in kpts.items():
+        for n_p in img_res:
+            box_score = n_p['score']
+            kpt_score = 0
+            valid_num = 0
+            kpt = np.array(n_p['keypoints']).reshape(-1, 3)
+            for n_jt in range(kpt.shape[0]):
+                t_s = kpt[n_jt][2]
+                if t_s > vis_thr:
+                    kpt_score += t_s
+                    valid_num += 1
+            if valid_num != 0:
+                kpt_score = kpt_score / valid_num
+            n_p['score'] = kpt_score * box_score
+
+        if soft:
+            keep = soft_oks_nms(
+                [img_res[i] for i in range(len(img_res))], oks_thr)
+        else:
+            keep = oks_nms(
+                [img_res[i] for i in range(len(img_res))], oks_thr)
+
+        if len(keep) == 0:
+            post_data += img_res
+        else:
+            post_data += [img_res[_keep] for _keep in keep]
+
+    return post_data
+
+
+def oks_nms(kpts_db, thr, sigmas=None, vis_thr=None):
+    """OKS NMS implementations.
+    Args:
+        kpts_db: keypoints.
+        thr: Retain overlap < thr.
+        sigmas: standard deviation of keypoint labelling.
+        vis_thr: threshold of the keypoint visibility.
+    Returns:
+        np.ndarray: indexes to keep.
+    """
+    if len(kpts_db) == 0:
+        return []
+
+    scores = np.array([k['score'] for k in kpts_db])
+    #kpts = np.array([k['keypoints'].flatten() for k in kpts_db])
+    kpts = np.array([k['keypoints'] for k in kpts_db])
+    areas = np.array([k['area'] for k in kpts_db])
+
+    order = scores.argsort()[::-1]
+
+    keep = []
+    while len(order) > 0:
+        i = order[0]
+        keep.append(i)
+
+        oks_ovr = oks_iou(kpts[i], kpts[order[1:]], areas[i], areas[order[1:]],
+                          sigmas, vis_thr)
+
+        inds = np.where(oks_ovr <= thr)[0]
+        order = order[inds + 1]
+
+    keep = np.array(keep)
+
+    return keep
+
+
+def soft_oks_nms(kpts_db, thr, max_dets=20, sigmas=None, vis_thr=None):
+    """Soft OKS NMS implementations.
+    Args:
+        kpts_db
+        thr: retain oks overlap < thr.
+        max_dets: max number of detections to keep.
+        sigmas: Keypoint labelling uncertainty.
+    Returns:
+        np.ndarray: indexes to keep.
+    """
+    if len(kpts_db) == 0:
+        return []
+
+    scores = np.array([k['score'] for k in kpts_db])
+    kpts = np.array([k['keypoints'].flatten() for k in kpts_db])
+    areas = np.array([k['area'] for k in kpts_db])
+
+    order = scores.argsort()[::-1]
+    scores = scores[order]
+
+    keep = np.zeros(max_dets, dtype=np.intp)
+    keep_cnt = 0
+    while len(order) > 0 and keep_cnt < max_dets:
+        i = order[0]
+
+        oks_ovr = oks_iou(kpts[i], kpts[order[1:]], areas[i], areas[order[1:]],
+                          sigmas, vis_thr)
+
+        order = order[1:]
+        scores = _rescore(oks_ovr, scores[1:], thr)
+
+        tmp = scores.argsort()[::-1]
+        order = order[tmp]
+        scores = scores[tmp]
+
+        keep[keep_cnt] = i
+        keep_cnt += 1
+
+    keep = keep[:keep_cnt]
+
+    return keep
+
+
+def oks_iou(g, d, a_g, a_d, sigmas=None, vis_thr=None):
+    """Calculate oks ious.
+    Args:
+        g: Ground truth keypoints.
+        d: Detected keypoints.
+        a_g: Area of the ground truth object.
+        a_d: Area of the detected object.
+        sigmas: standard deviation of keypoint labelling.
+        vis_thr: threshold of the keypoint visibility.
+    Returns:
+        list: The oks ious.
+    """
+    if sigmas is None:
+        if len(g) == 408:   # 136keypoints
+            sigmas = np.array([.26, .25, .25, .35, .35, .79, .79, .72, .72, .62,.62, 1.07, 1.07, .87, .87, .89, .89, .8,.8,.8,.89, .89, .89, .89, .89, .89,
+                     .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25,
+                     .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25,
+                     .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25,
+                     .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25,
+                     .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25, .25])/10.0
+        elif len(g) == 399:
+            sigmas = np.array([.026, .025, .025, .035, .035, .079, .079, .072, .072, .062, .062, 0.107, 0.107, .087, .087, .089, .089,
+                0.068, 0.066, 0.066, 0.092, 0.094, 0.094,
+                0.042, 0.043, 0.044, 0.043, 0.040, 0.035, 0.031, 0.025, 0.020, 0.023, 0.029, 0.032, 0.037, 0.038, 0.043,
+                0.041, 0.045, 0.013, 0.012, 0.011, 0.011, 0.012, 0.012, 0.011, 0.011, 0.013, 0.015, 0.009, 0.007, 0.007,
+                0.007, 0.012, 0.009, 0.008, 0.016, 0.010, 0.017, 0.011, 0.009, 0.011, 0.009, 0.007, 0.013, 0.008, 0.011,
+                0.012, 0.010, 0.034, 0.008, 0.008, 0.009, 0.008, 0.008, 0.007, 0.010, 0.008, 0.009, 0.009, 0.009, 0.007,
+                0.007, 0.008, 0.011, 0.008, 0.008, 0.008, 0.01, 0.008,
+                0.029, 0.022, 0.035, 0.037, 0.047, 0.026, 0.025, 0.024, 0.035, 0.018, 0.024, 0.022, 0.026, 0.017,
+                0.021, 0.021, 0.032, 0.02, 0.019, 0.022, 0.031,
+                0.029, 0.022, 0.035, 0.037, 0.047, 0.026, 0.025, 0.024, 0.035, 0.018, 0.024, 0.022, 0.026, 0.017,
+                0.021, 0.021, 0.032, 0.02, 0.019, 0.022, 0.031])
+        elif len(g) == 78:
+            sigmas = np.array([.26, .25, .25, .35, .35, .79, .79, .72, .72, .62,.62, 1.07, 1.07, .87, .87, .89, .89, .8,.8,.8,.89, .89, .89, .89, .89, .89])/10.0
+        else:
+            sigmas = np.array([
+                .26, .25, .25, .35, .35, .79, .79, .72, .72, .62, .62, 1.07, 1.07,
+                .87, .87, .89, .89
+            ]) / 10.0
+    vars = (sigmas * 2)**2
+    xg = g[0::3]
+    yg = g[1::3]
+    vg = g[2::3]
+    ious = np.zeros(len(d))
+    for n_d in range(0, len(d)):
+        xd = d[n_d, 0::3]
+        yd = d[n_d, 1::3]
+        vd = d[n_d, 2::3]
+        dx = xd - xg
+        dy = yd - yg
+        e = (dx**2 + dy**2) / vars / ((a_g + a_d[n_d]) / 2 + np.spacing(1)) / 2
+        if vis_thr is not None:
+            ind = list(vg > vis_thr) and list(vd > vis_thr)
+            e = e[ind]
+        ious[n_d] = np.sum(np.exp(-e)) / len(e) if len(e) != 0 else 0.0
+    return ious
+
+
+def _rescore(overlap, scores, thr, type='gaussian'):
+    """Rescoring mechanism gaussian or linear.
+    Args:
+        overlap: calculated ious
+        scores: target scores.
+        thr: retain oks overlap < thr.
+        type: 'gaussian' or 'linear'
+    Returns:
+        np.ndarray: indexes to keep
+    """
+    assert len(overlap) == len(scores)
+    assert type in ['gaussian', 'linear']
+
+    if type == 'linear':
+        inds = np.where(overlap >= thr)[0]
+        scores[inds] = scores[inds] * (1 - overlap[inds])
+    else:
+        scores = scores * np.exp(-overlap**2 / thr)
+
+    return scores
 
 
 def pose_nms(bboxes, bbox_scores, bbox_ids, pose_preds, pose_scores, areaThres=0):
@@ -25,15 +225,16 @@ def pose_nms(bboxes, bbox_scores, bbox_ids, pose_preds, pose_scores, areaThres=0
     bboxes:         bbox locations list (n, 4)
     bbox_scores:    bbox scores list (n, 1)
     bbox_ids:       bbox tracking ids list (n, 1)
-    pose_preds:     pose locations list (n, 17, 2)
-    pose_scores:    pose scores list    (n, 17, 1)
+    pose_preds:     pose locations list (n, kp_num, 2)
+    pose_scores:    pose scores list    (n, kp_num, 1)
     '''
     #global ori_pose_preds, ori_pose_scores, ref_dists
 
     pose_scores[pose_scores == 0] = 1e-5
-
-    final_result = []
-
+    kp_nums = pose_preds.size()[1]
+    res_bboxes, res_bbox_scores, res_bbox_ids, res_pose_preds, res_pose_scores, res_pick_ids = [],[],[],[],[],[]
+    
+    ori_bboxes = bboxes.clone()
     ori_bbox_scores = bbox_scores.clone()
     ori_bbox_ids = bbox_ids.clone()
     ori_pose_preds = pose_preds.clone()
@@ -52,46 +253,45 @@ def pose_nms(bboxes, bbox_scores, bbox_ids, pose_preds, pose_scores, areaThres=0
     human_scores = pose_scores.mean(dim=1)
 
     human_ids = np.arange(nsamples)
+    mask = np.ones(len(human_ids)).astype(bool)
+    
     # Do pPose-NMS
     pick = []
     merge_ids = []
-    while(human_scores.shape[0] != 0):
+    while(mask.any()):
+        tensor_mask = torch.Tensor(mask)==True
         # Pick the one with highest score
-        pick_id = torch.argmax(human_scores)
-        pick.append(human_ids[pick_id])
-        # num_visPart = torch.sum(pose_scores[pick_id] > 0.2)
+        pick_id = torch.argmax(human_scores[tensor_mask])
+        pick.append(human_ids[mask][pick_id])
 
         # Get numbers of match keypoints by calling PCK_match
-        ref_dist = ref_dists[human_ids[pick_id]]
-        simi = get_parametric_distance(pick_id, pose_preds, pose_scores, ref_dist)
-        num_match_keypoints = PCK_match(pose_preds[pick_id], pose_preds, ref_dist)
+        ref_dist = ref_dists[human_ids[mask][pick_id]]
+        simi = get_parametric_distance(pick_id, pose_preds[tensor_mask], pose_scores[tensor_mask], ref_dist)
+        num_match_keypoints = PCK_match(pose_preds[tensor_mask][pick_id], pose_preds[tensor_mask], ref_dist)
 
         # Delete humans who have more than matchThreds keypoints overlap and high similarity
-        delete_ids = torch.from_numpy(np.arange(human_scores.shape[0]))[((simi > gamma) | (num_match_keypoints >= matchThreds))]
+        delete_ids = torch.from_numpy(np.arange(human_scores[tensor_mask].shape[0]))[((simi > gamma) | (num_match_keypoints >= matchThreds))]
 
         if delete_ids.shape[0] == 0:
             delete_ids = pick_id
-        #else:
-        #    delete_ids = torch.from_numpy(delete_ids)
 
-        merge_ids.append(human_ids[delete_ids])
-        pose_preds = np.delete(pose_preds, delete_ids, axis=0)
-        pose_scores = np.delete(pose_scores, delete_ids, axis=0)
-        human_ids = np.delete(human_ids, delete_ids)
-        human_scores = np.delete(human_scores, delete_ids, axis=0)
-        bbox_scores = np.delete(bbox_scores, delete_ids, axis=0)
-        bbox_ids = np.delete(bbox_ids, delete_ids, axis=0)
+        merge_ids.append(human_ids[mask][delete_ids])
+        newmask = mask[mask]
+        newmask[delete_ids] = False
+        mask[mask] = newmask
+
 
     assert len(merge_ids) == len(pick)
     preds_pick = ori_pose_preds[pick]
     scores_pick = ori_pose_scores[pick]
     bbox_scores_pick = ori_bbox_scores[pick]
+    bboxes_pick = ori_bboxes[pick]
     bbox_ids_pick = ori_bbox_ids[pick]
     #final_result = pool.map(filter_result, zip(scores_pick, merge_ids, preds_pick, pick, bbox_scores_pick))
     #final_result = [item for item in final_result if item is not None]
 
     for j in range(len(pick)):
-        ids = np.arange(17)
+        ids = np.arange(kp_nums)
         max_score = torch.max(scores_pick[j, ids, 0])
 
         if max_score < scoreThreds:
@@ -110,24 +310,30 @@ def pose_nms(bboxes, bbox_scores, bbox_ids, pose_preds, pose_scores, areaThres=0
         xmin = min(merge_pose[:, 0])
         ymax = max(merge_pose[:, 1])
         ymin = min(merge_pose[:, 1])
+        bbox = bboxes_pick[j].cpu().tolist()
+        bbox_score = bbox_scores_pick[j].cpu()
 
         if (1.5 ** 2 * (xmax - xmin) * (ymax - ymin) < areaThres):
             continue
 
-        final_result.append({
-            'keypoints': merge_pose - 0.3,
-            'kp_score': merge_score,
-            'proposal_score': torch.mean(merge_score) + bbox_scores_pick[j] + 1.25 * max(merge_score),
-            'idx' : ori_bbox_ids[merge_id].tolist()
-        })
 
-    return final_result
+        res_bboxes.append(bbox)
+        res_bbox_scores.append(bbox_score)
+        res_bbox_ids.append(ori_bbox_ids[merge_id].tolist())
+        res_pose_preds.append(merge_pose)
+        res_pose_scores.append(merge_score)
+        res_pick_ids.append(pick[j])
+
+ 
+
+    return res_bboxes, res_bbox_scores, res_bbox_ids, res_pose_preds, res_pose_scores, res_pick_ids
 
 
 def filter_result(args):
     score_pick, merge_id, pred_pick, pick, bbox_score_pick = args
     global ori_pose_preds, ori_pose_scores, ref_dists
-    ids = np.arange(17)
+    kp_nums = ori_pose_preds.size()[1]
+    ids = np.arange(kp_nums)
     max_score = torch.max(score_pick[ids, 0])
 
     if max_score < scoreThreds:
@@ -160,20 +366,20 @@ def p_merge(ref_pose, cluster_preds, cluster_scores, ref_dist):
     '''
     Score-weighted pose merging
     INPUT:
-        ref_pose:       reference pose          -- [17, 2]
-        cluster_preds:  redundant poses         -- [n, 17, 2]
-        cluster_scores: redundant poses score   -- [n, 17, 1]
+        ref_pose:       reference pose          -- [kp_num, 2]
+        cluster_preds:  redundant poses         -- [n, kp_num, 2]
+        cluster_scores: redundant poses score   -- [n, kp_num, 1]
         ref_dist:       reference scale         -- Constant
     OUTPUT:
-        final_pose:     merged pose             -- [17, 2]
-        final_score:    merged score            -- [17]
+        final_pose:     merged pose             -- [kp_num, 2]
+        final_score:    merged score            -- [kp_num]
     '''
     dist = torch.sqrt(torch.sum(
         torch.pow(ref_pose[np.newaxis, :] - cluster_preds, 2),
         dim=2
-    ))  # [n, 17]
+    ))  # [n, kp_num]
 
-    kp_num = 17
+    kp_num = ref_pose.size()[0]
     ref_dist = min(ref_dist, 15)
 
     mask = (dist <= ref_dist)
@@ -207,20 +413,20 @@ def p_merge_fast(ref_pose, cluster_preds, cluster_scores, ref_dist):
     '''
     Score-weighted pose merging
     INPUT:
-        ref_pose:       reference pose          -- [17, 2]
-        cluster_preds:  redundant poses         -- [n, 17, 2]
-        cluster_scores: redundant poses score   -- [n, 17, 1]
+        ref_pose:       reference pose          -- [kp_num, 2]
+        cluster_preds:  redundant poses         -- [n, kp_num, 2]
+        cluster_scores: redundant poses score   -- [n, kp_num, 1]
         ref_dist:       reference scale         -- Constant
     OUTPUT:
-        final_pose:     merged pose             -- [17, 2]
-        final_score:    merged score            -- [17]
+        final_pose:     merged pose             -- [kp_num, 2]
+        final_score:    merged score            -- [kp_num]
     '''
     dist = torch.sqrt(torch.sum(
         torch.pow(ref_pose[np.newaxis, :] - cluster_preds, 2),
         dim=2
     ))
 
-    kp_num = 17
+    kp_num = ref_pose.size()[0]
     ref_dist = min(ref_dist, 15)
 
     mask = (dist <= ref_dist)
@@ -251,8 +457,9 @@ def get_parametric_distance(i, all_preds, keypoint_scores, ref_dist):
     ))
     mask = (dist <= 1)
 
+    kp_nums = all_preds.size()[1]
     # Define a keypoints distance
-    score_dists = torch.zeros(all_preds.shape[0], 17)
+    score_dists = torch.zeros(all_preds.shape[0], kp_nums)
     keypoint_scores.squeeze_()
     if keypoint_scores.dim() == 1:
         keypoint_scores.unsqueeze_(0)
@@ -310,6 +517,8 @@ def write_json(all_results, outputpath, form=None, for_eval=False):
                 keypoints.append(float(kp_scores[n]))
             result['keypoints'] = keypoints
             result['score'] = float(pro_scores)
+            if 'box' in human.keys():
+                result['box'] = human['box']
             #pose track results by PoseFlow
             if 'idx' in human.keys():
                 result['idx'] = human['idx']
@@ -317,7 +526,7 @@ def write_json(all_results, outputpath, form=None, for_eval=False):
             if form == 'cmu': # the form of CMU-Pose
                 if result['image_id'] not in json_results_cmu.keys():
                     json_results_cmu[result['image_id']]={}
-                    json_results_cmu[result['image_id']]['version']="AlphaPose v0.2"
+                    json_results_cmu[result['image_id']]['version']="AlphaPose v0.3"
                     json_results_cmu[result['image_id']]['bodies']=[]
                 tmp={'joints':[]}
                 result['keypoints'].append((result['keypoints'][15]+result['keypoints'][18])/2)
@@ -332,7 +541,7 @@ def write_json(all_results, outputpath, form=None, for_eval=False):
             elif form == 'open': # the form of OpenPose
                 if result['image_id'] not in json_results_cmu.keys():
                     json_results_cmu[result['image_id']]={}
-                    json_results_cmu[result['image_id']]['version']="AlphaPose v0.2"
+                    json_results_cmu[result['image_id']]['version']="AlphaPose v0.3"
                     json_results_cmu[result['image_id']]['people']=[]
                 tmp={'pose_keypoints_2d':[]}
                 result['keypoints'].append((result['keypoints'][15]+result['keypoints'][18])/2)

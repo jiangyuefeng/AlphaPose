@@ -3,9 +3,11 @@
 ### Requirements
 * Python 3.5+
 * Cython
-* PyTorch 1.1+
+* PyTorch 1.1+, for users with PyTorch 1.5 and 1.5+, please merge the pull request #592 by:
+  `git pull origin pull/592/head`
 * torchvision 0.3.0+
 * Linux, [Windows user check here](#Windows)
+* GCC<6.0, check https://github.com/facebookresearch/maskrcnn-benchmark/issues/25
 
 ### Code installation
 
@@ -22,23 +24,31 @@ conda install pytorch==1.1.0 torchvision==0.3.0
 
 # 3. Get AlphaPose
 git clone https://github.com/MVIG-SJTU/AlphaPose.git
+# git pull origin pull/592/head if you use PyTorch>=1.5
 cd AlphaPose
 
 # 4. install
 export PATH=/usr/local/cuda/bin/:$PATH
 export LD_LIBRARY_PATH=/usr/local/cuda/lib64/:$LD_LIBRARY_PATH
-pip install cython
+python -m pip install cython
 sudo apt-get install libyaml-dev
-python setup.py develop
+################Only For Ubuntu 18.04#################
+locale-gen C.UTF-8
+# if locale-gen not found
+sudo apt-get install locales
+export LANG=C.UTF-8
+######################################################
+python setup.py build develop
 ```
 
 #### Install with pip
 ```shell
 # 1. Install PyTorch
-pip3 install pytorch==1.1.0 torchvision==0.3.0
+pip3 install torch==1.1.0 torchvision==0.3.0
 
 # 2. Get AlphaPose
 git clone https://github.com/MVIG-SJTU/AlphaPose.git
+# git pull origin pull/592/head if you use PyTorch>=1.5
 cd AlphaPose
 
 # 3. install
@@ -46,10 +56,13 @@ export PATH=/usr/local/cuda/bin/:$PATH
 export LD_LIBRARY_PATH=/usr/local/cuda/lib64/:$LD_LIBRARY_PATH
 pip install cython
 sudo apt-get install libyaml-dev
-python setup.py develop --user
+python setup.py build develop --user
 ```
 
 #### Windows
+The installation process is same as above. But note that Windows users may face problem when installing cuda extension. Thus we disable the cuda extension in the setup.py by default. The affect is that models ended with "-dcn" is not supported. If you force to make cuda extension by modify [this line](https://github.com/MVIG-SJTU/AlphaPose/blob/master/setup.py#L124) to True, you should install Visual Studio due to the problem mentioned [here](https://github.com/MVIG-SJTU/AlphaPose/blob/master/setup.py#L121).
+We recommend Windows users to run models like FastPose, FastPose-duc, etc., as they also provide good accuracy and speed.
+
 For Windows user, if you meet error with PyYaml, you can download and install it manually from here: https://pyyaml.org/wiki/PyYAML.
 If your OS platform is `Windows`, make sure that Windows C++ build tool like visual studio 15+ or visual c++ 2015+ is installed for training.
 
@@ -62,6 +75,7 @@ If your OS platform is `Windows`, make sure that Windows C++ build tool like vis
 
 ### Prepare dataset (optional)
 
+#### MSCOCO
 If you want to train the model by yourself, please download data from [MSCOCO](http://cocodataset.org/#download) (train2017 and val2017). Download and extract them under `./data`, and make them look like this:
 ```
 |-- json
@@ -83,5 +97,19 @@ If you want to train the model by yourself, please download data from [MSCOCO](h
             |-- 000000000139.jpg
             |-- 000000000285.jpg
             |-- 000000000632.jpg
+            |-- ... 
+```
+
+#### MPII
+Please download images from [MPII](http://human-pose.mpi-inf.mpg.de/#download). We also provide the annotations in json format [[annot_mpii.zip](https://drive.google.com/open?id=1HC6znReBeg-TMPZbmoldtYrMGlrEFamh)]. 
+Download and extract them under `./data`, and make them look like this:
+```
+|-- data
+`-- |-- mpii
+    `-- |-- annot_mpii.json
+        `-- images
+            |-- 027457270.jpg
+            |-- 036645665.jpg
+            |-- 045572740.jpg
             |-- ... 
 ```
